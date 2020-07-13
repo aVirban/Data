@@ -1,0 +1,229 @@
+---
+title: "Analiza situatiei COVID19"
+author: "Virban Adrian"
+date: "6/20/2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Obiective
+
+Pe parcursul lucrarii vom analiza tendintele virusului si factorii (posibil) influenti. Analiza se va concentra asupra Romaniei, dar vom compara situatia si cu tari reprezentative, precum Germania, Suedia - unde primul caz pozitiv a fost descoperit in aceiasi zi ca in Romania, SUA si Brazilia - tari cu o populatie si o densitate a acesteia asemanatoare, dar cu un climat economic diferit. Vom incerca sa vedem daca masurile restricive (sau lipsa acestora) au avut vreun efect, vom testa ipoteza conform careia odata cu cresterea temperaturilor evolutia virusului va incetini, si, in final, perspective de viitor.
+
+### Incarcarea pachetelor
+
+Vom incarca pachetele uzuale pentru analiza datelor, anume *dplyr*, *purrr*, *tidyr*, *readr*, *tibble*.
+
+```{r packages, message = FALSE, warning = FALSE}
+library(dplyr)
+library(purrr)
+library(tidyr)
+library(readr)
+library(tibble)
+```
+### Citirea datelor
+
+Imediat dupa incarcarea pachetelor necesare, vom citit datele.
+```{r data}
+data <- read.csv(file="cov.csv");
+temp <- read.csv(file="temp.csv")
+```
+Dorim acum sa inspectam dataframe-urile introduse.
+```{r df}
+str(data)
+str(temp)
+```
+Putem observa ca rapoartele referitoare la Romania s-au facut pe o perioada de doar 170 zile, iar pentru celelalte 4 tari, datele sunt pe 172 de zile, lucru pe care il vom lua in calcul atat pentru prezentarea grafica a lor, cat si pentru realizarea regresiilor. De aceea, vom construi doi vectori pentru indexare. Pentru lizibilitatea graficelor, vom folosi "Zile trecute de la 1 ian 2020" in loc de formatul clasic "dd/mm/yyyy".
+```{r zile}
+zile <- 1:170;
+zile1 <- 1:172;
+```
+### Curatarea datelor
+
+Am vazut mai devreme ca ordinea cazurilor depistate zilnic se face de la nou la vechi, iar indexarea noastra are loc invers. De aceea, vom inversa ordinea. De asemenea, vom pune fiecare tara ce face obiectul studiului intr-un dataframe individual pentru ease-of-use.De asemenea, temperatura este formatata putin ciudat, si trebuie sa ne ocupam si de aceasta.
+```{r ind}
+temp$T <- as.numeric(temp$T)/10;
+data_ro <- data[which(data$countriesAndTerritories == "Romania"),];
+data_de <- data[which(data$countriesAndTerritories == "Germany"),];
+data_sw <- data[which(data$countriesAndTerritories == "Sweden"),];
+data_br <- data[which(data$countriesAndTerritories == "Brazil"),];
+data_us <- data[which(data$countriesAndTerritories == "United_States_of_America"),];
+
+data_ro$cases <- rev(data_ro$cases);
+data_de$cases <- rev(data_de$cases);
+data_sw$cases <- rev(data_sw$cases);
+data_br$cases <- rev(data_br$cases);
+data_us$cases <- rev(data_us$cases);
+```
+
+### Reprezentari grafice
+
+Mai departe, vom realiza cateva reprezentari grafice utile pentru intelegerea situatiei actuale. Vom reprezenta, pentru fiecare tara, situatia zilnica a cazurilor depistate. Unde e cazul, linia albastra reprezinta instaurarea masurilor restrictive, iar linia rosie reprezinta eliminarea (totala sau partiala) a acestora.
+```{r graphs1}
+layout(matrix(c(1,1,1,2,3,4,5,5,5), 3, 3, byrow = TRUE))
+plot(zile,data_ro$cases, main="Infectati pe zi in Romania", pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(-10,600))
+abline(v=c(75,135),col=c("blue","red"),lty=2);
+lines(zile,data_ro$cases);
+plot(zile1,data_de$cases,main="Infectati pe zi in Germania",pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,7500));
+abline(v=c(73,110),col=c("blue","red"),lty=2)
+lines(zile1,data_de$cases);
+plot(zile1,data_sw$cases,main="Infectazi pe zi in Suedia",pch = 19, 
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,2500));
+lines(zile1,data_sw$cases);
+plot(zile1,data_br$cases,main="Infectati pe zi in Brazilia",pch = 19, 
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,45000));
+lines(zile1,data_br$cases);
+plot(zile1,data_us$cases,main="Infectati pe zi in SUA",pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,60000));
+abline(v=c(82,103), col=c("blue","red"),lty=2);
+lines(zile1,data_us$cases);
+```
+
+Mai departe, vom incerca sa vedem 'cat de rau sta treaba', comparand numarul de infectii per locuitor.
+Pentru asta, va trebui intai sa calculam totalul infectiilor pentru fiecare tara.
+```{r graphs2}
+total_ro <- 0;
+total_sw <- 0;
+total_de <- 0;
+total_br <- 0;
+total_us <- 0;
+
+for(i in 1:length(data_ro$cases))
+{total_ro <- total_ro + data_ro$cases[i];}
+
+for(i in 1:length(data_sw$cases))
+{total_sw <- total_sw+data_sw$cases[i];
+total_de <- total_de+data_de$cases[i];
+total_br <- total_br+data_br$cases[i];
+total_us <- total_us+data_us$cases[i];
+}
+inf_cap_loc <- c(total_ro/data_ro$popData2019[1],total_sw/data_sw$popData2019[1],total_de/data_de$popData2019[1],total_br/data_br$popData2019[1],total_us/data_us$popData2019[1]);
+names <- c("Romania","Suedia","Germania","Brazilia","SUA");
+barplot(inf_cap_loc,names.arg=names,xlab="Tari",ylab="Infectati",col="magenta",
+        main="Infectati per locuitor",border="red")
+```
+
+Desi am fi tentati sa spunem ca SUA se afla intr-o pozitie mult mai proasta decat Brazilia, faptul ca nu sitm (momentan) nici cate teste s-au efectuat si nici procentajul de pozitivitate ne poate afecta judecata. Din pacate, API-ul Worldometer nu este gratuit, asa ca tot ce putem face e sa copiem datele manual. In continuare, vom vedea numarul de teste per 1M locuitori si apoi vom calcula procentajul de pozitivitate.
+```{r graphs3}
+teste <- c(597696,385659,5029696,1761482,26723179);
+teste_per_1mloc <- c(teste[1]*10^6/data_ro$popData2019[1],teste[2]*10^6/data_sw$popData2019[1],teste[3]*10^6/data_de$popData2019[1],teste[4]*10^6/data_br$popData2019[1],teste[5]*10^6/data_us$popData2019[1]);
+barplot(teste_per_1mloc,names.arg=names,xlab="Tari",ylab="Teste",col="magenta",
+        main="Teste per 1 mil locuitori",border="red")
+```
+
+Dupa cum putem vedea, Brazilia - raportat la numarul de locuitori - testeaza cel mai putin.
+Putem face acum presupunerea ca oamenii selectati pentur testare sunt alesi aleator. Stim ca este o presupunere curajoasa, dar daca presupunem ca oamenii sunt alesi dupa anumite criterii, analiza nu e posibila, intrucat nu am sti acele criterii. Asadar, putem afirma ca procentajul testelor pozitive este mai relevant decat valoarea absoluta a oamenilor infectati.
+
+```{r graphs4}
+proc_teste <- c(total_ro*100/teste[1],total_sw*100/teste[2],total_de*100/teste[3],total_br*100/teste[4],total_us*100/teste[5]);
+barplot(proc_teste,names.arg=names,xlab="Tari",ylab="%100",col="magenta",
+        main="Procentaj teste pozitive",border="red")
+```
+
+Acum putem trage o concluzie: Brazilia se afla intr-o situatie dificila - peste 50% (!) din testele efectuate sunt pozitive, SUA o duce ceva mai rau decat Germania, tara care, luand in calcul populatia, densitatea populatiei, traficul international si pozitia geografic o duce (relativ) bine. Romania, comparativ cu Suedia (tara in care virusul a fost depistat concomitent), o duce mai bine. 
+
+### Modele de Regresii
+
+Totusi, e bine ca acum sa vedem si trendul, evolutia numarului de infectii, atat per total, cat si dupa ridicarea masurilor restrictive. De aceea, vom trata separat cele doua cazuri - de la inceput pana in prezent si de la ridicarea masurilor pana in prezent. Pentru a fi ceva mai precis, vom aplica modelul incepand cu ziua depistarii primului caz.
+
+```{r graphs5}
+mod_ro <- lm(data_ro$cases[57:170]~zile[57:170])
+mod_sw <- lm(data_sw$cases[57:172]~zile1[57:172])
+mod_de <- lm(data_de$cases[28:172]~zile1[28:172])
+mod_br <- lm(data_br$cases[56:172]~zile1[56:172])
+mod_us <- lm(data_us$cases[21:172]~zile1[21:172])
+layout(matrix(c(1,1,1,2,3,4,5,5,5), 3, 3, byrow = TRUE))
+plot(zile[57:170],data_ro$cases[57:170], main="Infectati pe zi in Romania", pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,600))
+abline(mod_ro,col="red");
+lines(zile[57:170],data_ro$cases[57:170]);
+plot(zile1[28:172],data_de$cases[28:172],main="Infectati pe zi in Germania",pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,7500));
+abline(mod_de,col="red")
+lines(zile1[28:172],data_de$cases[28:172]);
+plot(zile1[57:172],data_sw$cases[57:172],main="Infectazi pe zi in Suedia",pch = 19, 
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,2500));
+abline(mod_sw,col="red")
+lines(zile1[57:172],data_sw$cases[57:172]);
+plot(zile1[56:172],data_br$cases[56:172],main="Infectati pe zi in Brazilia",pch = 19, 
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,45000));
+abline(mod_br,col="red")
+lines(zile1[56:172],data_br$cases[56:172]);
+plot(zile1[21:172],data_us$cases[21:172],main="Infectati pe zi in SUA",pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Zile de la 1 ian 2020", ylab="Infectati",
+     ylim=c(0,60000));
+abline(mod_us,col="red");
+lines(zile1[21:172],data_us$cases[21:172]);
+```
+
+O ipoteza care circula se refera la faptul ca, odata cu cresterea temperaturii, virusul ori ar disparea, ori ar fi mai putin eficient. Putem testa aceasta ipoteza, calculand corelatia dintre temperatura (zilnica) si numarul de cazuri zilnice.
+
+
+cor(temp$T,data_ro$cases)
+Corelatia de 0,52 ne spune ca sunt legate, dar nu intr-o masura extraordinara. Totusi, sa vedem ce putem extrage din asta.
+
+```{r graphs7}
+plot(data_ro$cases,temp$T,pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     xlab="Numar de cazuri zilnice",
+     ylab="Temperatura",
+     main="Temperatura vs Numarul de cazuri zilnice")
+mod_temp <- lm(temp$T~data_ro$cases)
+abline(mod_temp,col="red")
+```
+
+Ei bine, se pare ca temperatura afecteaza raspandirea virusului, dar invers fata de cum ne-am fi asteptat. Acest fapt poate fi atribuit faptului ca restrictiile au fost ridicate odata cu cresterea temperaturii sau faptului ca, odata cu cresterea temperaturii, oamenii sunt mai predispusi sa calatoreasca.
+
+Pentru incheiere, vom incerca sa 'verificam' in ce stadiu ne aflam in prezent. 
+Vom observa tendinta cazurilor dupa ridicarea restrictiilor - dupa data de 15 mai.
+
+```{r graphs8}
+plot(zile[75:170],data_ro$cases[75:170],pch = 19,
+     col = rgb(0, 0, 0, 0.15),
+     ylab="Cazuri",
+     xlab="Zile",
+     main="Cazuri zilnice vs Zile trecute de la 1 ian "
+     )
+mod_ro2 <- lm(data_ro$cases[75:170]~zile[75:170])
+abline(mod_ro2,col="red")
+```
+
+Asadar, ne aflam intr-o usoara crestere.
+
+Acum, odata calculate si ilustrate cele doua modele, vom face o predictie.
+
+```{r graphs9}
+zile2 <- data.frame(zilet = c(171:284));
+predict_mod_1 <- predict(object = mod_ro,
+        newdata = zile2);
+x1 <- data.frame(zile2,predict_mod_1);
+plot(x1,ylim=c(0,400),xlab="Zile", ylab="Cazuri", main="Cazuri zilnice vs Zile trecute de la 1 ian PREDICTIE ")
+```
